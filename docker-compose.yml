@@ -1,0 +1,56 @@
+services:
+  chronodav:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: chronodav-server
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATA_DIR: /app/data
+      # Verbindung zur bestehenden oder Docker-MariaDB
+      MARIADB_HOST: mariadb
+      MARIADB_PORT: 3306
+      MARIADB_DATABASE: chronodav
+      MARIADB_USER: chronodav
+      MARIADB_PASSWORD: changeme_strong_password
+      # Regelmäßiges SQLite-Backup-Intervall (in Minuten)
+      BACKUP_INTERVAL_MINUTES: 60
+      # Optionale SMTP-E-Mail-Warnung bei DB-Verbindungsabbruch
+      SMTP_HOST: ""
+      SMTP_PORT: 587
+      SMTP_SECURE: "false"
+      SMTP_USER: ""
+      SMTP_PASS: ""
+      SMTP_FROM: "chronodav@example.com"
+      ALERT_EMAIL_TO: "admin@example.com"
+    volumes:
+      - chronodav_data:/app/data
+    depends_on:
+      mariadb:
+        condition: service_healthy
+
+  mariadb:
+    image: mariadb:11
+    container_name: chronodav-mariadb
+    restart: unless-stopped
+    environment:
+      MARIADB_ROOT_PASSWORD: changeme_root_password
+      MARIADB_DATABASE: chronodav
+      MARIADB_USER: chronodav
+      MARIADB_PASSWORD: changeme_strong_password
+    volumes:
+      - mariadb_data:/var/lib/mysql
+      - ./db/mariadb_schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  chronodav_data:
+  mariadb_data:

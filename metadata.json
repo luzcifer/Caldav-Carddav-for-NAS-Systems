@@ -1,0 +1,6 @@
+{
+  "name": "ChronoDAV",
+  "description": "Self-hosted CalDAV & CardDAV suite with Google, Apple & Batman themes, Dark Mode, 2FA, Tasks, Attachments, MariaDB & SQLite Failover.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}

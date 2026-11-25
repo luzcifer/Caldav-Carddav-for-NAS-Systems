@@ -1,0 +1,35 @@
+# Docker Compose für UGREEN NAS (UGOS Pro) mit bereits vorhandener MariaDB
+# Ordner z.B. nach /volume1/docker/chronodav kopieren und in UGOS Pro -> Docker -> Projekt importieren.
+
+services:
+  chronodav:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: chronodav-server
+    restart: unless-stopped
+    ports:
+      - "3080:3000"
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATA_DIR: /app/data
+      # IP-Adresse oder Containername Ihrer bestehenden MariaDB auf dem UGREEN NAS:
+      MARIADB_HOST: "192.168.1.10"
+      MARIADB_PORT: 3306
+      MARIADB_DATABASE: "chronodav"
+      MARIADB_USER: "chronodav"
+      MARIADB_PASSWORD: "IHR_MARIADB_PASSWORT"
+      # Regelmäßiges SQLite-Backup-Intervall (in Minuten)
+      BACKUP_INTERVAL_MINUTES: 60
+      # Optionale SMTP-E-Mail-Warnung bei DB-Verbindungsabbruch
+      SMTP_HOST: ""
+      SMTP_PORT: 587
+      SMTP_SECURE: "false"
+      SMTP_USER: ""
+      SMTP_PASS: ""
+      SMTP_FROM: "chronodav@ihre-domain.de"
+      ALERT_EMAIL_TO: "ihre-mail@domain.de"
+    volumes:
+      # SQLite-Backups & Dateianhänge direkt im UGREEN-Dateimanager sichtbar:
+      - ./data:/app/data

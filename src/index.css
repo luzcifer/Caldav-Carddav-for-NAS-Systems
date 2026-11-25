@@ -1,0 +1,155 @@
+@import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
+
+@layer base {
+  :root {
+    --font-display: "Plus Jakarta Sans", system-ui, sans-serif;
+    --font-body: "DM Sans", system-ui, sans-serif;
+    --font-mono: "JetBrains Mono", ui-monospace, monospace;
+
+    /* Default: Google Workspace Light */
+    --bg-canvas: #f8fafd;
+    --bg-surface: #ffffff;
+    --bg-surface-2: #edf2fa;
+    --bg-hover: #e8eef7;
+    --border-hairline: #dde3ea;
+    --text-primary: #1f1f1f;
+    --text-muted: #5f6368;
+    --accent: #1a73e8;
+    --accent-hover: #1557b0;
+    --accent-fg: #ffffff;
+    --accent-soft: #d3e3fd;
+    --accent-soft-fg: #041e49;
+    --radius-card: 16px;
+    --radius-btn: 9999px;
+    --radius-input: 10px;
+  }
+
+  .dark {
+    --bg-canvas: #131314;
+    --bg-surface: #1e1f20;
+    --bg-surface-2: #282a2c;
+    --bg-hover: #333537;
+    --border-hairline: #333538;
+    --text-primary: #e3e3e3;
+    --text-muted: #9aa0a6;
+    --accent: #8ab4f8;
+    --accent-hover: #aecbfa;
+    --accent-fg: #041e49;
+    --accent-soft: #004a77;
+    --accent-soft-fg: #c2e7ff;
+  }
+
+  /* Apple Theme (Light & Dark) */
+  [data-theme="apple"] {
+    --bg-canvas: #f5f5f7;
+    --bg-surface: rgba(255, 255, 255, 0.88);
+    --bg-surface-2: #e8e8ed;
+    --bg-hover: #e5e5ea;
+    --border-hairline: rgba(60, 60, 67, 0.14);
+    --text-primary: #1d1d1f;
+    --text-muted: #6e6e73;
+    --accent: #007aff;
+    --accent-hover: #0066d6;
+    --accent-fg: #ffffff;
+    --accent-soft: rgba(0, 122, 255, 0.13);
+    --accent-soft-fg: #0055b3;
+    --radius-card: 14px;
+    --radius-btn: 10px;
+    --radius-input: 10px;
+  }
+
+  .dark[data-theme="apple"] {
+    --bg-canvas: #000000;
+    --bg-surface: rgba(28, 28, 30, 0.9);
+    --bg-surface-2: #2c2c2e;
+    --bg-hover: #3a3a3c;
+    --border-hairline: rgba(255, 255, 255, 0.12);
+    --text-primary: #f5f5f7;
+    --text-muted: #98989d;
+    --accent: #0a84ff;
+    --accent-hover: #409cff;
+    --accent-fg: #ffffff;
+    --accent-soft: rgba(10, 132, 255, 0.22);
+    --accent-soft-fg: #64b5ff;
+  }
+
+  /* Batman / Gotham Tactical Theme (Light & Dark) */
+  [data-theme="batman"] {
+    --bg-canvas: #eceef2;
+    --bg-surface: #f7f8fa;
+    --bg-surface-2: #dfe3eb;
+    --bg-hover: #d3d9e4;
+    --border-hairline: #c4cad6;
+    --text-primary: #0f172a;
+    --text-muted: #475569;
+    --accent: #b45309;
+    --accent-hover: #92400e;
+    --accent-fg: #ffffff;
+    --accent-soft: rgba(180, 83, 9, 0.14);
+    --accent-soft-fg: #78350f;
+    --radius-card: 6px;
+    --radius-btn: 6px;
+    --radius-input: 6px;
+  }
+
+  .dark[data-theme="batman"] {
+    --bg-canvas: #08090c;
+    --bg-surface: #11131a;
+    --bg-surface-2: #191d28;
+    --bg-hover: #222736;
+    --border-hairline: #272d3d;
+    --text-primary: #f1f5f9;
+    --text-muted: #94a3b8;
+    --accent: #eab308;
+    --accent-hover: #facc15;
+    --accent-fg: #090a0f;
+    --accent-soft: rgba(234, 179, 8, 0.16);
+    --accent-soft-fg: #fde047;
+  }
+
+  body {
+    font-family: var(--font-body);
+    background-color: var(--bg-canvas);
+    color: var(--text-primary);
+    -webkit-font-smoothing: antialiased;
+    margin: 0;
+  }
+
+  h1, h2, h3, h4 {
+    font-family: var(--font-display);
+  }
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+.theme-card {
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-card);
+}
+
+.theme-btn-primary {
+  background-color: var(--accent);
+  color: var(--accent-fg);
+  border-radius: var(--radius-btn);
+  transition: background-color 150ms cubic-bezier(0.16, 1, 0.3, 1), transform 150ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.theme-btn-primary:hover {
+  background-color: var(--accent-hover);
+}
+
+.theme-input {
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-input);
+  color: var(--text-primary);
+}
+
+.theme-input:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
