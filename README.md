@@ -82,6 +82,7 @@ Waunn auf deinem UGREEN NAS scho a MariaDB rennt (und nur de Tabellenstruktur fe
    - `MARIADB_DATABASE`: Name deiner vorhandenen Datenbank (z. B. `chronodav`)
    - `MARIADB_USER` & `MARIADB_PASSWORD`: Zugangsdaten für de Datenbank
 3. In UGOS Pro die **Docker-App** aufmachen → **Projekt → Erstellen**, den Ordner `/volume1/docker/chronodav` auswählen und starten.
+   - **Falls `open Dockerfile: no such file or directory` kommt**: Entweder wurde beim Entpacken ein extra Unterordner erstellt (sodass `Dockerfile` eine Ebene tiefer liegt), oder UGOS Pro legt das Projekt-YAML woanders ab. Lösung: Im Compose unter `build: context:` statt `.` den direkten NAS-Pfad eintragen (z. B. `context: /volume1/docker/dav`).
 4. Standardmäßig lauscht der Container dann auf Port **`3080`** (`http://<NAS-IP>:3080`). Die SQLite-Backups und Dateianhänge landen direkt sichtbar im Ordner `./data` am NAS.
 
 > **Tipp fürs Handy:** Für CalDAV/CardDAV auf iOS und Android am besten im UGREEN NAS einen Reverse Proxy mit HTTPS (z. B. über deine Domain/Subdomain) auf Port `3080` legen — Handys mögen HTTPS am liebsten.

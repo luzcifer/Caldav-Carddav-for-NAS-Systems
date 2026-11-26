@@ -1,5 +1,8 @@
 # Docker Compose für UGREEN NAS (UGOS Pro) mit bereits vorhandener MariaDB
-# Ordner z.B. nach /volume1/docker/chronodav kopieren und in UGOS Pro -> Docker -> Projekt importieren.
+# WICHTIG für UGOS Pro:
+# - Wenn Sie diese Datei im UGOS Pro UI einfügen (Projekt "dav"), kennt Docker den Ordner mit den Quellcodes nicht über ".".
+#   Tragen Sie dann bei `context:` den exakten NAS-Pfad zum entpackten Ordner ein, z. B.: /volume1/docker/dav
+# - Oder legen Sie alle Dateien inkl. Dockerfile direkt in den ausgewählten Projekt-Ordner (ohne extra Unterordner).
 
 services:
   chronodav:

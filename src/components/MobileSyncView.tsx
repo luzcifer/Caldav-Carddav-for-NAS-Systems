@@ -107,13 +107,24 @@ export function MobileSyncView() {
         <div className="theme-card p-5 space-y-2.5">
           <div className="flex items-center gap-2 text-sm font-semibold">
             <Smartphone className="w-4 h-4 text-[var(--accent)]" />
-            Android (DAVx5)
+            ChronoSync Android-App (Nativ)
           </div>
-          <ol className="text-xs text-[var(--text-muted)] space-y-1.5 list-decimal list-inside leading-relaxed">
-            <li>Kostenlose App <strong>DAVx5</strong> installieren (F-Droid / Play Store).</li>
-            <li>Neues Konto via <strong>„Mit URL und Benutzername anmelden“</strong> hinzufügen oder QR-Code scannen.</li>
-            <li>Basis-URL einfügen, Benutzername &amp; Passwort eingeben und Kalender + Adressbuch aktivieren.</li>
-          </ol>
+          <p className="text-xs text-[var(--text-muted)] leading-relaxed">
+            Eigene Android-App für CalDAV &amp; CardDAV mit direkter Integration in die Android Kalender- &amp; Kontakte-App, wählbarem Intervall (<strong>5, 10, 15, 30, 45, 60 Min</strong>), <strong>„Jetzt syncen“</strong> und <strong>Sofort-Sync beim Öffnen von Kalender/Kontakte</strong>.
+          </p>
+          <div className="pt-1 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => void downloadAuthenticatedFile('/sync/android-zip', 'chronosync-android.zip')}
+              className="theme-btn-primary px-3 py-1.5 text-xs font-semibold flex items-center gap-1.5"
+            >
+              <Download className="w-3.5 h-3.5" />
+              Android-App (.zip) laden
+            </button>
+          </div>
+          <p className="text-[11px] text-[var(--text-muted)]">
+            Alternativ: <strong>DAVx5</strong> installieren und oben den QR-Code scannen.
+          </p>
         </div>
 
         <div className="theme-card p-5 space-y-2.5">

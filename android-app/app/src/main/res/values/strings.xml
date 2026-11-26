@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">ChronoSync</string>
+    <string name="accessibility_service_label">ChronoSync App-Start Auto-Sync</string>
+    <string name="accessibility_service_description">Erkennt das Öffnen der Kalender- oder Kontakte-App und startet sofort eine CalDAV/CardDAV-Synchronisation.</string>
+</resources>

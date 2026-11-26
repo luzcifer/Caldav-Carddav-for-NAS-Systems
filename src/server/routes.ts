@@ -16,6 +16,7 @@ import {
 import { BACKUPS_DIR, UPLOADS_DIR, db } from './db.ts';
 import { contactToVcf, eventToIcs, parseSimpleVcf } from './dav.ts';
 import { getLastAlertResult, sendMailNotification } from './mailer.ts';
+import { createDirectoryZipBuffer } from './zip.ts';
 import type {
   EntityType,
   EventShareInput,
@@ -847,6 +848,17 @@ export function createApiRouter(): express.Router {
 
     res.setHeader('Content-Disposition', `attachment; filename="chronodav-${user.username}.mobileconfig"`);
     res.type('application/x-apple-aspen-config; charset=utf-8').send(xml);
+  });
+
+  router.get('/sync/android-zip', requireAuth, (_req: AuthRequest, res: Response) => {
+    const androidDir = path.resolve(process.cwd(), 'android-app');
+    if (!fs.existsSync(androidDir)) {
+      res.status(404).json({ error: 'Android-Projektverzeichnis nicht gefunden' });
+      return;
+    }
+    const zipBuffer = createDirectoryZipBuffer(androidDir);
+    res.setHeader('Content-Disposition', 'attachment; filename="chronosync-android.zip"');
+    res.type('application/zip').send(zipBuffer);
   });
 
   // ==================== ADMIN: USERS, DB, BACKUPS, SMTP ====================
