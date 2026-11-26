@@ -4,6 +4,19 @@ Servas! Des is **ChronoDAV** — dei söbstgehosteter Kalender-, Kontakt- und Au
 
 ---
 
+## Wos si neich taun hot (Update-Verlauf für GitHub)
+
+- **Kalenderfarben frei wählen**: In der linken Seitenleiste unter *Meine Kalender* kannst jetzt direkt beim Anlegen oder per Klick auf den Farbpunkt bei jedem Kalender a Wunschfarbe aussuchen (inklusive `calendar-color` über CalDAV und automatischer Übernahme bei neuen Terminen).
+- **Kontakte per CSV importieren & exportieren**: Unter *Kontakte* gibt's ab sofort an **CSV Import** (mit Vorschau und automatischer Erkennung von Komma `,` / Semikolon `;` sowie deutschen Excel- und Google-Kontakte-Spalten) plus **CSV Export**.
+- **Eigene Android-App „ChronoSync“ (`/android-app`)**: Native Kotlin/Compose-Companion-App, de CalDAV & CardDAV direkt in die Android-Kalender- und Kontakte-App synct (Intervalle: 5, 10, 15, 30, 45, 60 Min oder *„Jetzt syncen“* automatisch beim Start von Kalender/Kontakte).
+- **Android Google Kalender & Google Kontakte Fix**:
+  - **Google Kalender**: Erzwingt Sichtbarkeits- und Sync-Flags (`VISIBLE`, `SYNC_EVENTS`, Eigentümerrechte, Kalenderfarben) jetzt auch auf bestehenden Konten und Kalendern.
+  - **Google Kontakte**: Durch `CONTACTS_STRUCTURE` (`@xml/contacts`) und automatische Konto-/Gruppen-Einrichtung lässt si ChronoSync direkt als **beschreibbares CardDAV-Konto** unter *„Speichern in“* auswählen.
+  - **System-Diagnose**: ChronoSync zeigt direkt in der App an, wie viele Kalender, Termine und Kontakte im Android-Speicher liegen.
+- **MariaDB Master-Sync gehärtet**: Fehlende Eltern-Datensätze (z. B. Benutzer vor Kalendern) und unterschiedliche IDs bei gleichem Benutzernamen/UID werden beim Master-Sync automatisch abgeglichen — ka `fk_calendars_owner` Fremdschlüssel-Fehler mehr beim Nachsynchronisieren oder nach einem DB-Reset.
+
+---
+
 ## Wos des Werkel ois kau (Features)
 
 - **3 Designs + Dark Mode (Pflicht!)**:
@@ -12,11 +25,11 @@ Servas! Des is **ChronoDAV** — dei söbstgehosteter Kalender-, Kontakt- und Au
   - **Batman-Look**: Tiefschwarzes Gotham-Tactical-Design mit goldene Akzente — ned nur fia'd Fledermaus-Höhle.
   - **Dark Mode**: Mit oan Klick umschaltbar (auf Wunsch standardmäßig finster).
 - **Kalender (CalDAV)**:
-  - Monats-, Wochen-, Tages- und Agenda-Ansicht.
+  - Monats-, Wochen-, Tages- und Agenda-Ansicht samt individueller **Kalenderfarben**.
   - Termine eintragen, bearbeiten, `.ics` exportieren und **mit andere Benutzer teilen** (nur lesen oder mitbearbeiten).
 - **Kontakte (CardDAV)**:
   - Übersichtliche Tabelle wia bei Google Kontakte mit Seitenleiste zum Bearbeiten.
-  - Mehrere Telefonnummern, E-Mails, Geburtstag, Favoriten, Labels sowie **vCard (`.vcf`) Import & Export**.
+  - Mehrere Telefonnummern, E-Mails, Geburtstag, Favoriten, Labels sowie **CSV- und vCard-(`.vcf`) Import & Export**.
 - **Aufgabenverwaltung**:
   - Behalt Fristen, Prioritäten (*Hoch / Mittel / Niedrig*) und den Status (*Offen / In Bearbeitung / Erledigt*) im Aug, inklusive Verknüpfung zu Kontakte oder Termine.
 - **Adresssuche & Dateianhänge**:
@@ -24,7 +37,7 @@ Servas! Des is **ChronoDAV** — dei söbstgehosteter Kalender-, Kontakt- und Au
   - Dateien (PDFs, Bilder, Dokumente) direkt an Termine, Kontakte oder Aufgaben dranhängen.
 - **Mobile Endgeräte ganz easy synchronisieren**:
   - Echter **CalDAV & CardDAV Server** unter `/dav/` sowie `/.well-known/caldav` und `/.well-known/carddav`.
-  - **QR-Code** für **Android (DAVx5)** und 1-Klick **Apple `.mobileconfig`-Profil** zum Runterladen fürs iPhone, iPad oder den Mac (funktioniert natürlich genauso mit Thunderbird & Linux).
+  - **Eigene Android-App „ChronoSync“** (Projekt als ZIP direkt über die WebGUI runterladen und in Android Studio als APK bauen), **QR-Code** für **DAVx5** und 1-Klick **Apple `.mobileconfig`-Profil** fürs iPhone, iPad oder den Mac (funktioniert natürlich genauso mit Thunderbird & Linux).
 - **Sicherheit & Benutzerverwaltung**:
   - Eigene **Admin-Oberfläche** zum Anlegen, Bearbeiten und Löschen von Benutzerkonten.
   - **2FA (Zwei-Faktor-Authentifizierung)** mit echtem TOTP-QR-Code (Google Authenticator, Apple Passwörter, Authy).
@@ -126,8 +139,9 @@ Danach im Browser `http://localhost:3000` aufrufen.
 ## Mobile Endgeräte einbinden (Kurzfassung)
 
 1. In ChronoDAV links auf **Mobil-Sync** klicken.
-2. **iPhone / iPad / Mac**: Einfach auf **„Apple .mobileconfig Profil herunterladen“** tippen, Profil am Gerät installieren und Passwort eingeben.
-3. **Android (DAVx5)**: In DAVx5 *„Mit URL und Benutzername anmelden“* wählen, den **QR-Code** scannen (oder `https://deine-domain/dav/` eintippen) und Kalender + Adressbuch anhakerln.
+2. **Android (ChronoSync-App)**: `chronosync-android.zip` runterladen, entpacken, in Android Studio öffnen → *Build → Build APK(s)* ausführen und am Handy installieren. Server-URL, Benutzername, Passwort und Intervall (5–60 Min oder App-Start-Sync) speichern — fertig!
+3. **iPhone / iPad / Mac**: Einfach auf **„Apple .mobileconfig Profil herunterladen“** tippen, Profil am Gerät installieren und Passwort eingeben.
+4. **Alternativ Android (DAVx5)**: In DAVx5 *„Mit URL und Benutzername anmelden“* wählen, den **QR-Code** scannen (oder `https://deine-domain/dav/` eintippen) und Kalender + Adressbuch anhakerln.
 
 ---
 

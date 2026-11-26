@@ -353,8 +353,8 @@ class ChronoDatabase {
   }
 
   public async init(): Promise<void> {
-    await this.autoProvisionEnvAdmin();
     await this.connectMariaDb();
+    await this.autoProvisionEnvAdmin();
     await this.createBackupSnapshot('startup');
     this.startTimers();
   }
@@ -648,21 +648,24 @@ class ChronoDatabase {
     }
 
     let synced = 0;
-    const queue = this.sqlite
-      .prepare('SELECT seq, table_name, record_id, action FROM sync_queue ORDER BY seq ASC')
-      .all() as Array<{ seq: number; table_name: string; record_id: string; action: 'upsert' | 'delete' }>;
 
-    if (queue.length === 0) {
-      // Initial baseline sync if MariaDB is empty (e.g. users created during offline bootstrap)
+    try {
       const [rows] = await this.pool.query('SELECT COUNT(*) as cnt FROM users');
       const mariaUserCount = Number((rows as Array<{ cnt: number }>)[0]?.cnt || 0);
       const sqliteUserCount = (this.sqlite.prepare('SELECT COUNT(*) as cnt FROM users').get() as { cnt: number }).cnt;
       if (mariaUserCount === 0 && sqliteUserCount > 0) {
         synced += await this.pushAllSqliteToMaria();
+        this.sqlite.prepare("DELETE FROM sync_queue WHERE action = 'upsert'").run();
       }
-      this.lastSyncAt = nowIso();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.handleMariaFailure(`Master-Sync fehlgeschlagen (Initial-Abgleich): ${msg}`);
       return synced;
     }
+
+    const queue = this.sqlite
+      .prepare('SELECT seq, table_name, record_id, action FROM sync_queue ORDER BY seq ASC')
+      .all() as Array<{ seq: number; table_name: string; record_id: string; action: 'upsert' | 'delete' }>;
 
     for (const item of queue) {
       try {
@@ -694,6 +697,86 @@ class ChronoDatabase {
     return count;
   }
 
+  private async ensureParentInMaria(table: 'users' | 'calendars' | 'events', recordId: string): Promise<boolean> {
+    if (!this.pool || !recordId) return false;
+    const [rows] = await this.pool.execute(`SELECT id FROM ${table} WHERE id = ? LIMIT 1`, [recordId]);
+    if ((rows as Array<{ id: string }>).length > 0) return true;
+    const local = this.sqlite.prepare(`SELECT id FROM ${table} WHERE id = ?`).get(recordId);
+    if (!local) return false;
+    await this.syncSingleRecordToMaria(table, recordId, 'upsert');
+    return true;
+  }
+
+  private async reconcileMariaUserId(sqliteUserId: string, username: string): Promise<void> {
+    if (!this.pool) return;
+    const conn = await this.pool.getConnection();
+    try {
+      const [byUsername] = await conn.execute('SELECT id FROM users WHERE username = ? LIMIT 1', [username]);
+      const existing = (byUsername as Array<{ id: string }>)[0];
+      if (!existing || existing.id === sqliteUserId) return;
+
+      const [byId] = await conn.execute('SELECT id FROM users WHERE id = ? LIMIT 1', [sqliteUserId]);
+      if ((byId as Array<{ id: string }>).length > 0) return;
+
+      const oldId = existing.id;
+      await conn.beginTransaction();
+      try {
+        await conn.query('SET FOREIGN_KEY_CHECKS = 0');
+        await conn.execute('UPDATE calendars SET owner_id = ? WHERE owner_id = ?', [sqliteUserId, oldId]);
+        await conn.execute('UPDATE events SET owner_id = ? WHERE owner_id = ?', [sqliteUserId, oldId]);
+        await conn.execute('UPDATE event_shares SET shared_with_user_id = ? WHERE shared_with_user_id = ?', [
+          sqliteUserId,
+          oldId,
+        ]);
+        await conn.execute('UPDATE contacts SET owner_id = ? WHERE owner_id = ?', [sqliteUserId, oldId]);
+        await conn.execute('UPDATE tasks SET owner_id = ? WHERE owner_id = ?', [sqliteUserId, oldId]);
+        await conn.execute('UPDATE attachments SET owner_id = ? WHERE owner_id = ?', [sqliteUserId, oldId]);
+        await conn.execute('UPDATE users SET id = ? WHERE id = ?', [sqliteUserId, oldId]);
+        await conn.query('SET FOREIGN_KEY_CHECKS = 1');
+        await conn.commit();
+      } catch (txErr) {
+        await conn.query('SET FOREIGN_KEY_CHECKS = 1').catch(() => {});
+        await conn.rollback().catch(() => {});
+        throw txErr;
+      }
+    } finally {
+      conn.release();
+    }
+  }
+
+  private async reconcileMariaUid(table: 'events' | 'contacts' | 'tasks', sqliteId: string, uid: string): Promise<void> {
+    if (!this.pool || !uid) return;
+    const conn = await this.pool.getConnection();
+    try {
+      const [byUid] = await conn.execute(`SELECT id FROM ${table} WHERE uid = ? LIMIT 1`, [uid]);
+      const existing = (byUid as Array<{ id: string }>)[0];
+      if (!existing || existing.id === sqliteId) return;
+
+      const [byId] = await conn.execute(`SELECT id FROM ${table} WHERE id = ? LIMIT 1`, [sqliteId]);
+      if ((byId as Array<{ id: string }>).length > 0) return;
+
+      const oldId = existing.id;
+      if (table === 'events') {
+        await conn.beginTransaction();
+        try {
+          await conn.query('SET FOREIGN_KEY_CHECKS = 0');
+          await conn.execute('UPDATE event_shares SET event_id = ? WHERE event_id = ?', [sqliteId, oldId]);
+          await conn.execute('UPDATE events SET id = ? WHERE id = ?', [sqliteId, oldId]);
+          await conn.query('SET FOREIGN_KEY_CHECKS = 1');
+          await conn.commit();
+        } catch (txErr) {
+          await conn.query('SET FOREIGN_KEY_CHECKS = 1').catch(() => {});
+          await conn.rollback().catch(() => {});
+          throw txErr;
+        }
+      } else {
+        await conn.execute(`UPDATE ${table} SET id = ? WHERE id = ?`, [sqliteId, oldId]);
+      }
+    } finally {
+      conn.release();
+    }
+  }
+
   private async syncSingleRecordToMaria(
     tableName: string,
     recordId: string,
@@ -720,6 +803,7 @@ class ChronoDatabase {
       case 'users': {
         const row = this.sqlite.prepare('SELECT * FROM users WHERE id = ?').get(recordId) as UserRecord | undefined;
         if (!row) return;
+        await this.reconcileMariaUserId(row.id, row.username);
         await this.pool.execute(
           `INSERT INTO users (id, username, display_name, email, password_hash, role, totp_secret, totp_enabled, preferred_theme, preferred_dark, created_at, updated_at)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -748,6 +832,7 @@ class ChronoDatabase {
       case 'calendars': {
         const row = this.sqlite.prepare('SELECT * FROM calendars WHERE id = ?').get(recordId) as CalendarRecord | undefined;
         if (!row) return;
+        if (!(await this.ensureParentInMaria('users', row.owner_id))) return;
         await this.pool.execute(
           `INSERT INTO calendars (id, owner_id, name, color, description, is_default, created_at, updated_at)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -768,6 +853,9 @@ class ChronoDatabase {
       case 'events': {
         const row = this.sqlite.prepare('SELECT * FROM events WHERE id = ?').get(recordId) as EventRecord | undefined;
         if (!row) return;
+        if (!(await this.ensureParentInMaria('users', row.owner_id))) return;
+        if (!(await this.ensureParentInMaria('calendars', row.calendar_id))) return;
+        await this.reconcileMariaUid('events', row.id, row.uid);
         await this.pool.execute(
           `INSERT INTO events (id, uid, calendar_id, owner_id, title, description, start_time, end_time, all_day, location, address_street, address_zip, address_city, address_country, address_lat, address_lon, color, recurrence_rule, etag, created_at, updated_at)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -809,6 +897,8 @@ class ChronoDatabase {
           .prepare('SELECT * FROM event_shares WHERE id = ?')
           .get(recordId) as { id: string; event_id: string; shared_with_user_id: string; permission: string; created_at: string } | undefined;
         if (!row) return;
+        if (!(await this.ensureParentInMaria('events', row.event_id))) return;
+        if (!(await this.ensureParentInMaria('users', row.shared_with_user_id))) return;
         await this.pool.execute(
           `INSERT INTO event_shares (id, event_id, shared_with_user_id, permission, created_at)
            VALUES (?, ?, ?, ?, ?)
@@ -820,6 +910,8 @@ class ChronoDatabase {
       case 'contacts': {
         const row = this.sqlite.prepare('SELECT * FROM contacts WHERE id = ?').get(recordId) as ContactRecord | undefined;
         if (!row) return;
+        if (!(await this.ensureParentInMaria('users', row.owner_id))) return;
+        await this.reconcileMariaUid('contacts', row.id, row.uid);
         await this.pool.execute(
           `INSERT INTO contacts (id, uid, owner_id, first_name, last_name, display_name, company, job_title, emails_json, phones_json, address_street, address_zip, address_city, address_country, address_lat, address_lon, birthday, notes, labels_json, is_favorite, etag, created_at, updated_at)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -862,6 +954,8 @@ class ChronoDatabase {
       case 'tasks': {
         const row = this.sqlite.prepare('SELECT * FROM tasks WHERE id = ?').get(recordId) as TaskRecord | undefined;
         if (!row) return;
+        if (!(await this.ensureParentInMaria('users', row.owner_id))) return;
+        await this.reconcileMariaUid('tasks', row.id, row.uid);
         await this.pool.execute(
           `INSERT INTO tasks (id, uid, owner_id, title, description, due_date, priority, status, linked_contact_id, linked_event_id, created_at, updated_at)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -889,6 +983,7 @@ class ChronoDatabase {
       case 'attachments': {
         const row = this.sqlite.prepare('SELECT * FROM attachments WHERE id = ?').get(recordId) as AttachmentRecord | undefined;
         if (!row) return;
+        if (!(await this.ensureParentInMaria('users', row.owner_id))) return;
         await this.pool.execute(
           `INSERT INTO attachments (id, owner_id, entity_type, entity_id, original_name, stored_name, mime_type, size_bytes, created_at)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
