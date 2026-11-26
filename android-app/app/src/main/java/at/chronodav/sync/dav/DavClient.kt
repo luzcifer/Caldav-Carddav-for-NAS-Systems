@@ -14,7 +14,8 @@ import java.util.concurrent.TimeUnit
 data class DavCalendarInfo(
     val id: String,
     val href: String,
-    val displayName: String
+    val displayName: String,
+    val colorHex: String = "#1A73E8"
 )
 
 data class DavEvent(
@@ -93,7 +94,7 @@ class DavClient {
             .header("Depth", "1")
             .method(
                 "PROPFIND",
-                """<?xml version="1.0" encoding="utf-8"?><D:propfind xmlns:D="DAV:"><D:prop><D:displayname/><D:resourcetype/></D:prop></D:propfind>"""
+                """<?xml version="1.0" encoding="utf-8"?><D:propfind xmlns:D="DAV:" xmlns:A="http://apple.com/ns/ical/"><D:prop><D:displayname/><D:resourcetype/><A:calendar-color/></D:prop></D:propfind>"""
                     .toRequestBody("application/xml; charset=utf-8".toMediaType())
             )
             .build()
@@ -104,16 +105,33 @@ class DavClient {
                 throw IllegalStateException("CalDAV PROPFIND fehlgeschlagen: HTTP ${resp.code}")
             }
             val results = mutableListOf<DavCalendarInfo>()
-            val regex = Regex("<D:response>(.*?)</D:response>", RegexOption.DOT_MATCHES_ALL)
+            val regex = Regex("<(?:D:)?response>(.*?)</(?:D:)?response>", RegexOption.DOT_MATCHES_ALL)
             for (match in regex.findAll(body)) {
                 val block = match.groupValues[1]
-                if (!block.contains("calendar", ignoreCase = true)) continue
-                val href = Regex("<D:href>(.*?)</D:href>").find(block)?.groupValues?.get(1)?.trim() ?: continue
+                val isCalendar = block.contains(":calendar/>", ignoreCase = true) ||
+                    block.contains("<calendar/>", ignoreCase = true) ||
+                    block.contains(":calendar>", ignoreCase = true)
+                if (!isCalendar) continue
+                val href = Regex("<(?:D:)?href>(.*?)</(?:D:)?href>").find(block)?.groupValues?.get(1)?.trim() ?: continue
                 if (href.trimEnd('/') == "/dav/calendars/$encUser") continue
-                val name = Regex("<D:displayname>(.*?)</D:displayname>").find(block)?.groupValues?.get(1)?.trim()
+                val name = Regex("<(?:D:)?displayname>(.*?)</(?:D:)?displayname>").find(block)?.groupValues?.get(1)?.trim()
                     ?: "ChronoDAV Kalender"
+                val rawColor = Regex("<(?:[A-Za-z0-9]+:)?calendar-color>(.*?)</(?:[A-Za-z0-9]+:)?calendar-color>")
+                    .find(block)?.groupValues?.get(1)?.trim() ?: "#1A73E8"
+                val cleanColor = if (Regex("^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$").matches(rawColor)) {
+                    rawColor.take(7)
+                } else {
+                    "#1A73E8"
+                }
                 val id = href.trimEnd('/').substringAfterLast('/')
-                results.add(DavCalendarInfo(id = id, href = href, displayName = unescapeXml(name)))
+                results.add(
+                    DavCalendarInfo(
+                        id = id,
+                        href = href,
+                        displayName = unescapeXml(name),
+                        colorHex = cleanColor
+                    )
+                )
             }
             return results
         }
@@ -155,6 +173,23 @@ class DavClient {
         }
     }
 
+    fun deleteEvent(serverUrl: String, username: String, password: String, calendarId: String, uid: String) {
+        val base = normalizeDavBase(serverUrl)
+        val encUser = URLEncoder.encode(username, "UTF-8")
+        val encUid = URLEncoder.encode(uid, "UTF-8")
+        val url = "$base/calendars/$encUser/$calendarId/$encUid.ics"
+        val req = Request.Builder()
+            .url(url)
+            .header("Authorization", Credentials.basic(username, password))
+            .delete()
+            .build()
+        http.newCall(req).execute().use { resp ->
+            if (!resp.isSuccessful && resp.code != 404) {
+                throw IllegalStateException("CalDAV DELETE fehlgeschlagen: HTTP ${resp.code}")
+            }
+        }
+    }
+
     fun fetchContacts(serverUrl: String, username: String, password: String): List<DavContact> {
         val base = normalizeDavBase(serverUrl)
         val encUser = URLEncoder.encode(username, "UTF-8")
@@ -188,6 +223,23 @@ class DavClient {
         http.newCall(req).execute().use { resp ->
             if (!resp.isSuccessful && resp.code != 201 && resp.code != 204) {
                 throw IllegalStateException("CardDAV PUT fehlgeschlagen: HTTP ${resp.code}")
+            }
+        }
+    }
+
+    fun deleteContact(serverUrl: String, username: String, password: String, uid: String) {
+        val base = normalizeDavBase(serverUrl)
+        val encUser = URLEncoder.encode(username, "UTF-8")
+        val encUid = URLEncoder.encode(uid, "UTF-8")
+        val url = "$base/addressbooks/$encUser/contacts/$encUid.vcf"
+        val req = Request.Builder()
+            .url(url)
+            .header("Authorization", Credentials.basic(username, password))
+            .delete()
+            .build()
+        http.newCall(req).execute().use { resp ->
+            if (!resp.isSuccessful && resp.code != 404) {
+                throw IllegalStateException("CardDAV DELETE fehlgeschlagen: HTTP ${resp.code}")
             }
         }
     }

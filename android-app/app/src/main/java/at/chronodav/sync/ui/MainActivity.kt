@@ -32,6 +32,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.LifecycleOwner
 import at.chronodav.sync.data.SyncPreferences
 import at.chronodav.sync.dav.DavClient
 import at.chronodav.sync.sync.AppLaunchSyncService
@@ -98,6 +101,7 @@ fun ChronoSyncScreen() {
     var syncing by remember { mutableStateOf(false) }
     var bannerMsg by remember { mutableStateOf<String?>(null) }
     var accessibilityActive by remember { mutableStateOf(isAccessibilityEnabled(context)) }
+    var diagnostics by remember { mutableStateOf(SyncEngine.getLocalDiagnostics(context, settings.username)) }
 
     var hasPermissions by remember {
         mutableStateOf(
@@ -106,18 +110,40 @@ fun ChronoSyncScreen() {
         )
     }
 
+    val scope = rememberCoroutineScope()
+
+    fun refreshState() {
+        val loaded = prefs.load()
+        settings = loaded
+        logs = prefs.getLogs()
+        accessibilityActive = isAccessibilityEnabled(context)
+        hasPermissions =
+            ContextCompat.checkSelfPermission(context, Manifest.permission.WRITE_CALENDAR) == PackageManager.PERMISSION_GRANTED &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.WRITE_CONTACTS) == PackageManager.PERMISSION_GRANTED
+        diagnostics = SyncEngine.getLocalDiagnostics(context, loaded.username)
+    }
+
     val permLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { result ->
         hasPermissions = result.values.all { it }
+        if (settings.username.isNotBlank() && settings.password.isNotBlank()) {
+            SyncEngine.ensureSystemAccount(context, settings.username, settings.password)
+        }
+        refreshState()
     }
 
-    val scope = rememberCoroutineScope()
-
-    fun refreshState() {
-        settings = prefs.load()
-        logs = prefs.getLogs()
-        accessibilityActive = isAccessibilityEnabled(context)
+    DisposableEffect(context) {
+        val owner = context as? LifecycleOwner
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                refreshState()
+            }
+        }
+        owner?.lifecycle?.addObserver(observer)
+        onDispose {
+            owner?.lifecycle?.removeObserver(observer)
+        }
     }
 
     Column(
@@ -227,6 +253,80 @@ fun ChronoSyncScreen() {
                 bannerMsg?.let { msg ->
                     Text(msg, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
                 }
+
+                HorizontalDivider()
+
+                // Android System-Check für Google Kalender & Google Kontakte
+                Text("Android-Speicher & Apps", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                val acctLine = if (diagnostics.accountRegistered) {
+                    "Konto im System: ${diagnostics.accountName} (Kalender: ${if (diagnostics.calendarSyncEnabled) "An" else "Aus"}, Kontakte: ${if (diagnostics.contactsSyncEnabled) "An" else "Aus"})"
+                } else {
+                    "Konto im System: Noch nicht angelegt (bitte unten auf Speichern tippen)"
+                }
+                Text(acctLine, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+
+                val calNamesText = if (diagnostics.localCalendarNames.isNotEmpty()) {
+                    " (${diagnostics.localCalendarNames.joinToString(", ")})"
+                } else {
+                    ""
+                }
+                Text(
+                    "Kalender-Provider: ${diagnostics.localCalendarsCount} Kalender$calNamesText · ${diagnostics.localEventsCount} Termine",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    "Kontakte-Provider: ${diagnostics.localContactsCount} Kontakte (CardDAV schreibbar)",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    OutlinedButton(
+                        onClick = {
+                            runCatching {
+                                val i = Intent(Intent.ACTION_MAIN).apply {
+                                    addCategory(Intent.CATEGORY_APP_CALENDAR)
+                                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                }
+                                context.startActivity(i)
+                            }
+                        },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("Kalender", maxLines = 1)
+                    }
+                    OutlinedButton(
+                        onClick = {
+                            runCatching {
+                                val i = Intent(Intent.ACTION_MAIN).apply {
+                                    addCategory(Intent.CATEGORY_APP_CONTACTS)
+                                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                }
+                                context.startActivity(i)
+                            }
+                        },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("Kontakte", maxLines = 1)
+                    }
+                    OutlinedButton(
+                        onClick = {
+                            runCatching {
+                                context.startActivity(Intent(Settings.ACTION_SYNC_SETTINGS))
+                            }
+                        },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("Konten", maxLines = 1)
+                    }
+                }
+
+                Text(
+                    "Hinweis: In Google Kalender links im Menü ggf. den Haken beim ChronoSync-Konto aktivieren. In Google Kontakte kann unter „Speichern in“ das ChronoSync-Konto gewählt werden.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
         }
 

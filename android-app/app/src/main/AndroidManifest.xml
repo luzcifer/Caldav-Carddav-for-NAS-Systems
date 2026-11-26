@@ -18,6 +18,25 @@
     <uses-permission android:name="android.permission.WRITE_SYNC_SETTINGS" />
     <uses-permission android:name="android.permission.READ_SYNC_STATS" />
 
+    <queries>
+        <package android:name="com.google.android.calendar" />
+        <package android:name="com.google.android.contacts" />
+        <package android:name="com.samsung.android.calendar" />
+        <package android:name="com.samsung.android.app.contacts" />
+        <package android:name="com.android.calendar" />
+        <package android:name="com.android.contacts" />
+        <provider android:authorities="com.android.calendar" />
+        <provider android:authorities="com.android.contacts" />
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.APP_CALENDAR" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.APP_CONTACTS" />
+        </intent>
+    </queries>
+
     <application
         android:allowBackup="false"
         android:icon="@drawable/ic_chronosync"
@@ -45,6 +64,9 @@
             <meta-data
                 android:name="android.accounts.AccountAuthenticator"
                 android:resource="@xml/authenticator" />
+            <meta-data
+                android:name="android.provider.CONTACTS_STRUCTURE"
+                android:resource="@xml/contacts" />
         </service>
 
         <!-- CalDAV SyncAdapter -> Android Kalender-App -->
@@ -71,6 +93,9 @@
             <meta-data
                 android:name="android.content.SyncAdapter"
                 android:resource="@xml/sync_contacts" />
+            <meta-data
+                android:name="android.provider.CONTACTS_STRUCTURE"
+                android:resource="@xml/contacts" />
         </service>
 
         <!-- Sofort-Sync beim Öffnen der Kalender- oder Kontakte-App -->

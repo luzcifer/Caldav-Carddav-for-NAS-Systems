@@ -81,9 +81,12 @@ export default function App() {
   const [tasks, setTasks] = useState<TaskItem[]>([]);
   const [directoryUsers, setDirectoryUsers] = useState<DirectoryUser[]>([]);
 
-  // New calendar inline state
+  // New & edit calendar inline state
+  const CALENDAR_COLORS = ['#1A73E8', '#0B8043', '#D50000', '#F4511E', '#8E24AA', '#039BE5', '#EAB308', '#E67C73'];
   const [addingCal, setAddingCal] = useState(false);
   const [newCalName, setNewCalName] = useState('');
+  const [newCalColor, setNewCalColor] = useState('#0B8043');
+  const [colorPickerCalId, setColorPickerCalId] = useState<string | null>(null);
 
   useEffect(() => {
     const root = document.documentElement;
@@ -170,12 +173,21 @@ export default function App() {
     if (!newCalName.trim()) return;
     const res = await apiRequest<{ calendar: CalendarItem }>('/calendars', {
       method: 'POST',
-      body: JSON.stringify({ name: newCalName.trim(), color: '#0B8043' }),
+      body: JSON.stringify({ name: newCalName.trim(), color: newCalColor }),
     });
     setCalendars((prev) => [...prev, res.calendar]);
     setVisibleCalendarIds((prev) => [...prev, res.calendar.id]);
     setNewCalName('');
     setAddingCal(false);
+  }
+
+  async function handleUpdateCalendarColor(calId: string, color: string) {
+    const res = await apiRequest<{ calendar: CalendarItem }>(`/calendars/${calId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ color }),
+    });
+    setCalendars((prev) => prev.map((c) => (c.id === calId ? res.calendar : c)));
+    setColorPickerCalId(null);
   }
 
   const miniCalDays = useMemo(() => {
@@ -461,40 +473,109 @@ export default function App() {
             </div>
 
             {addingCal && (
-              <form onSubmit={(e) => void handleCreateCalendar(e)} className="flex gap-1.5">
-                <input
-                  type="text"
-                  value={newCalName}
-                  onChange={(e) => setNewCalName(e.target.value)}
-                  placeholder="Kalendername"
-                  className="theme-input flex-1 px-2 py-1 text-xs"
-                />
-                <button type="submit" className="theme-btn-primary px-2.5 py-1 text-xs font-semibold">
-                  OK
-                </button>
+              <form onSubmit={(e) => void handleCreateCalendar(e)} className="space-y-2 p-2 rounded-lg border border-[var(--border-hairline)] bg-[var(--bg-surface-2)]/40">
+                <div className="flex gap-1.5">
+                  <input
+                    type="text"
+                    value={newCalName}
+                    onChange={(e) => setNewCalName(e.target.value)}
+                    placeholder="Kalendername"
+                    className="theme-input flex-1 px-2 py-1 text-xs"
+                  />
+                  <button type="submit" className="theme-btn-primary px-2.5 py-1 text-xs font-semibold">
+                    OK
+                  </button>
+                </div>
+                <div className="flex items-center justify-between gap-1">
+                  <div className="flex items-center gap-1 flex-wrap">
+                    {CALENDAR_COLORS.map((col) => (
+                      <button
+                        key={col}
+                        type="button"
+                        onClick={() => setNewCalColor(col)}
+                        style={{ backgroundColor: col }}
+                        aria-label={`Farbe ${col}`}
+                        className={`w-4 h-4 rounded-full transition-transform ${
+                          newCalColor === col ? 'ring-2 ring-offset-1 ring-[var(--text-primary)] scale-110' : ''
+                        }`}
+                      />
+                    ))}
+                  </div>
+                  <input
+                    type="color"
+                    value={newCalColor}
+                    onChange={(e) => setNewCalColor(e.target.value)}
+                    title="Eigene Farbe wählen"
+                    className="w-5 h-5 rounded cursor-pointer bg-transparent border-0 p-0"
+                  />
+                </div>
               </form>
             )}
 
             <div className="space-y-1">
               {calendars.map((c) => {
                 const checked = visibleCalendarIds.includes(c.id);
+                const pickerOpen = colorPickerCalId === c.id;
                 return (
-                  <label
-                    key={c.id}
-                    className="flex items-center gap-2 px-1 py-1 text-xs cursor-pointer rounded hover:bg-[var(--bg-hover)]"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={checked}
-                      onChange={() =>
-                        setVisibleCalendarIds((prev) =>
-                          checked ? prev.filter((id) => id !== c.id) : [...prev, c.id],
-                        )
-                      }
-                    />
-                    <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: c.color }} />
-                    <span className="truncate">{c.name}</span>
-                  </label>
+                  <div key={c.id} className="space-y-1">
+                    <div className="flex items-center gap-2 px-1 py-1 text-xs rounded hover:bg-[var(--bg-hover)]">
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() =>
+                          setVisibleCalendarIds((prev) =>
+                            checked ? prev.filter((id) => id !== c.id) : [...prev, c.id],
+                          )
+                        }
+                        className="cursor-pointer"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setColorPickerCalId(pickerOpen ? null : c.id)}
+                        title="Kalenderfarbe ändern"
+                        className="w-3.5 h-3.5 rounded-full shrink-0 ring-1 ring-black/20 dark:ring-white/25 hover:scale-110 transition-transform cursor-pointer"
+                        style={{ backgroundColor: c.color }}
+                      />
+                      <span
+                        onClick={() =>
+                          setVisibleCalendarIds((prev) =>
+                            checked ? prev.filter((id) => id !== c.id) : [...prev, c.id],
+                          )
+                        }
+                        className="truncate flex-1 cursor-pointer"
+                      >
+                        {c.name}
+                      </span>
+                    </div>
+
+                    {pickerOpen && (
+                      <div className="ml-6 p-2 rounded-lg border border-[var(--border-hairline)] bg-[var(--bg-surface)] flex items-center justify-between gap-1.5">
+                        <div className="flex items-center gap-1 flex-wrap">
+                          {CALENDAR_COLORS.map((col) => (
+                            <button
+                              key={col}
+                              type="button"
+                              onClick={() => void handleUpdateCalendarColor(c.id, col)}
+                              style={{ backgroundColor: col }}
+                              aria-label={`Kalenderfarbe ${col}`}
+                              className={`w-4 h-4 rounded-full transition-transform ${
+                                c.color.toLowerCase() === col.toLowerCase()
+                                  ? 'ring-2 ring-offset-1 ring-[var(--text-primary)] scale-110'
+                                  : ''
+                              }`}
+                            />
+                          ))}
+                        </div>
+                        <input
+                          type="color"
+                          value={c.color}
+                          onChange={(e) => void handleUpdateCalendarColor(c.id, e.target.value)}
+                          title="Eigene Farbe wählen"
+                          className="w-5 h-5 rounded cursor-pointer bg-transparent border-0 p-0 shrink-0"
+                        />
+                      </div>
+                    )}
+                  </div>
                 );
               })}
             </div>

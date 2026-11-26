@@ -142,18 +142,29 @@ export function CalendarView({
     });
   }, [events, visibleCalendarIds, searchQuery]);
 
+  const calendarColorMap = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const c of calendars) map.set(c.id, c.color || '#1A73E8');
+    return map;
+  }, [calendars]);
+
+  function resolveEventColor(ev: EventItem): string {
+    return ev.color || calendarColorMap.get(ev.calendar_id) || '#1A73E8';
+  }
+
   function openNewEvent(dayDate: Date, hour = 9) {
     const s = new Date(dayDate.getFullYear(), dayDate.getMonth(), dayDate.getDate(), hour, 0, 0);
     const e = new Date(dayDate.getFullYear(), dayDate.getMonth(), dayDate.getDate(), hour + 1, 0, 0);
+    const defaultCal = calendars.find((c) => visibleCalendarIds.includes(c.id)) || calendars[0];
     setEditingEvent(null);
     setTitle('');
-    setCalendarId(calendars[0]?.id || '');
+    setCalendarId(defaultCal?.id || '');
     setAllDay(false);
     setStartInput(toLocalDateTimeInput(s.toISOString()));
     setEndInput(toLocalDateTimeInput(e.toISOString()));
     setDescription('');
     setLocation('');
-    setColor(calendars[0]?.color || '#1A73E8');
+    setColor(defaultCal?.color || '#1A73E8');
     setAddress({ street: '', zip: '', city: '', country: '', lat: null, lon: null });
     setShares([]);
     setAttachments([]);
@@ -170,7 +181,7 @@ export function CalendarView({
     setEndInput(ev.all_day ? toLocalDateInput(ev.end_time) : toLocalDateTimeInput(ev.end_time));
     setDescription(ev.description || '');
     setLocation(ev.location || '');
-    setColor(ev.color || '#1A73E8');
+    setColor(ev.color || calendarColorMap.get(ev.calendar_id) || '#1A73E8');
     setAddress({
       street: ev.address_street || '',
       zip: ev.address_zip || '',
@@ -197,6 +208,8 @@ export function CalendarView({
     try {
       const startIso = allDay ? new Date(`${startInput.slice(0, 10)}T00:00:00`).toISOString() : new Date(startInput).toISOString();
       const endIso = allDay ? new Date(`${endInput.slice(0, 10)}T23:59:00`).toISOString() : new Date(endInput).toISOString();
+      const calDefaultColor = (calendarColorMap.get(calendarId) || '#1A73E8').toLowerCase();
+      const effectiveColor = color.toLowerCase() === calDefaultColor ? null : color;
       const payload = {
         calendarId,
         title: title.trim(),
@@ -211,7 +224,7 @@ export function CalendarView({
         addressCountry: address.country || null,
         addressLat: address.lat,
         addressLon: address.lon,
-        color,
+        color: effectiveColor,
         shares,
       };
 
@@ -425,7 +438,7 @@ export function CalendarView({
                           e.stopPropagation();
                           openEditEvent(ev);
                         }}
-                        style={{ backgroundColor: ev.color || '#1A73E8' }}
+                        style={{ backgroundColor: resolveEventColor(ev) }}
                         className="w-full text-left px-1.5 py-0.5 rounded text-[11px] font-medium text-white truncate flex items-center gap-1 hover:opacity-90"
                       >
                         {!ev.all_day && (
@@ -506,7 +519,7 @@ export function CalendarView({
                             e.stopPropagation();
                             openEditEvent(ev);
                           }}
-                          style={{ backgroundColor: ev.color || '#1A73E8' }}
+                          style={{ backgroundColor: resolveEventColor(ev) }}
                           className="w-full text-left px-2 py-1 rounded text-xs font-medium text-white truncate block"
                         >
                           {ev.all_day ? 'Ganztägig: ' : ''}
@@ -546,7 +559,7 @@ export function CalendarView({
                 <div className="flex items-start gap-3 min-w-0">
                   <span
                     className="w-3 h-3 rounded-full mt-1.5 shrink-0"
-                    style={{ backgroundColor: ev.color || '#1A73E8' }}
+                    style={{ backgroundColor: resolveEventColor(ev) }}
                   />
                   <div className="min-w-0 space-y-0.5">
                     <div className="font-semibold text-sm text-[var(--text-primary)] truncate">{ev.title}</div>
@@ -661,7 +674,7 @@ export function CalendarView({
                   Ganztägig
                 </label>
 
-                <div className="flex items-center gap-1.5">
+                <div className="flex items-center gap-1.5 flex-wrap">
                   {EVENT_COLORS.map((c) => (
                     <button
                       key={c}
@@ -670,10 +683,18 @@ export function CalendarView({
                       onClick={() => setColor(c)}
                       style={{ backgroundColor: c }}
                       className={`w-5 h-5 rounded-full transition-transform ${
-                        color === c ? 'ring-2 ring-offset-2 ring-[var(--text-primary)] scale-110' : ''
+                        color.toLowerCase() === c.toLowerCase() ? 'ring-2 ring-offset-2 ring-[var(--text-primary)] scale-110' : ''
                       }`}
                     />
                   ))}
+                  <input
+                    type="color"
+                    disabled={readOnly}
+                    value={color}
+                    onChange={(e) => setColor(e.target.value)}
+                    title="Eigene Farbe wählen"
+                    className="w-6 h-6 rounded cursor-pointer bg-transparent border-0 p-0 disabled:opacity-60"
+                  />
                 </div>
               </div>
 
@@ -708,7 +729,14 @@ export function CalendarView({
                   <select
                     disabled={readOnly || !isOwner}
                     value={calendarId}
-                    onChange={(e) => setCalendarId(e.target.value)}
+                    onChange={(e) => {
+                      const nextCalId = e.target.value;
+                      const prevDefault = (calendarColorMap.get(calendarId) || '#1A73E8').toLowerCase();
+                      setCalendarId(nextCalId);
+                      if (!editingEvent || color.toLowerCase() === prevDefault) {
+                        setColor(calendarColorMap.get(nextCalId) || '#1A73E8');
+                      }
+                    }}
                     className="theme-input w-full px-3 py-2 text-sm disabled:opacity-60"
                   >
                     {calendars.map((c) => (

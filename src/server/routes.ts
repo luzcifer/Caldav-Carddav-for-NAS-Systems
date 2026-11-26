@@ -296,6 +296,21 @@ export function createApiRouter(): express.Router {
     res.status(201).json({ calendar: created });
   });
 
+  router.patch('/calendars/:id', requireAuth, async (req: AuthRequest, res: Response) => {
+    const cal = db.getCalendarById(req.params.id);
+    if (!cal || cal.owner_id !== req.currentUser!.id) {
+      res.status(404).json({ error: 'Kalender nicht gefunden' });
+      return;
+    }
+    const { name, color, description } = req.body as {
+      name?: string;
+      color?: string;
+      description?: string | null;
+    };
+    const updated = await db.updateCalendar(cal.id, { name, color, description });
+    res.json({ calendar: updated });
+  });
+
   router.get('/events', requireAuth, (req: AuthRequest, res: Response) => {
     const events = db.listEventsForUser(req.currentUser!.id).map((ev) => ({
       ...ev,
@@ -541,6 +556,112 @@ export function createApiRouter(): express.Router {
       });
     }
     res.json({ imported: createdCount });
+  });
+
+  router.post('/contacts/import/csv', requireAuth, async (req: AuthRequest, res: Response) => {
+    const { contacts } = req.body as {
+      contacts?: Array<{
+        firstName?: string;
+        lastName?: string;
+        company?: string;
+        jobTitle?: string;
+        emails?: Array<{ label: string; value: string }>;
+        phones?: Array<{ label: string; value: string }>;
+        addressStreet?: string;
+        addressZip?: string;
+        addressCity?: string;
+        addressCountry?: string;
+        birthday?: string;
+        notes?: string;
+        labels?: string[];
+      }>;
+    };
+    if (!Array.isArray(contacts) || contacts.length === 0) {
+      res.status(400).json({ error: 'Keine Kontakte zum Importieren übergeben' });
+      return;
+    }
+    let imported = 0;
+    for (const item of contacts.slice(0, 2000)) {
+      const first = (item.firstName || '').trim();
+      const last = (item.lastName || '').trim();
+      const comp = (item.company || '').trim();
+      if (!first && !last && !comp) continue;
+      await db.createContact({
+        ownerId: req.currentUser!.id,
+        firstName: first || comp || 'Kontakt',
+        lastName: last,
+        company: comp || null,
+        jobTitle: item.jobTitle?.trim() || null,
+        emails: Array.isArray(item.emails) ? item.emails.filter((e) => e.value?.trim()) : [],
+        phones: Array.isArray(item.phones) ? item.phones.filter((p) => p.value?.trim()) : [],
+        addressStreet: item.addressStreet?.trim() || null,
+        addressZip: item.addressZip?.trim() || null,
+        addressCity: item.addressCity?.trim() || null,
+        addressCountry: item.addressCountry?.trim() || null,
+        birthday: item.birthday?.trim() || null,
+        notes: item.notes?.trim() || null,
+        labels: Array.isArray(item.labels) ? item.labels : [],
+      });
+      imported += 1;
+    }
+    res.json({ imported });
+  });
+
+  router.get('/contacts/export/csv', requireAuth, (req: AuthRequest, res: Response) => {
+    const contacts = db.listContacts(req.currentUser!.id);
+    const esc = (v: string | null | undefined) => {
+      const s = (v || '').replace(/"/g, '""');
+      return `"${s}"`;
+    };
+    const header = [
+      'Vorname',
+      'Nachname',
+      'Anzeigename',
+      'Firma',
+      'Position',
+      'E-Mail',
+      'Telefon',
+      'Straße',
+      'PLZ',
+      'Stadt',
+      'Land',
+      'Geburtstag',
+      'Notizen',
+    ].join(';');
+    const lines = contacts.map((c) => {
+      let em = '';
+      let ph = '';
+      try {
+        const emails = JSON.parse(c.emails_json) as Array<{ value: string }>;
+        em = emails[0]?.value || '';
+      } catch {
+        em = '';
+      }
+      try {
+        const phones = JSON.parse(c.phones_json) as Array<{ value: string }>;
+        ph = phones[0]?.value || '';
+      } catch {
+        ph = '';
+      }
+      return [
+        esc(c.first_name),
+        esc(c.last_name),
+        esc(c.display_name),
+        esc(c.company),
+        esc(c.job_title),
+        esc(em),
+        esc(ph),
+        esc(c.address_street),
+        esc(c.address_zip),
+        esc(c.address_city),
+        esc(c.address_country),
+        esc(c.birthday),
+        esc(c.notes),
+      ].join(';');
+    });
+    const csv = '\uFEFF' + [header, ...lines].join('\r\n');
+    res.setHeader('Content-Disposition', 'attachment; filename="chronodav-contacts.csv"');
+    res.type('text/csv; charset=utf-8').send(csv);
   });
 
   // ==================== TASKS ====================

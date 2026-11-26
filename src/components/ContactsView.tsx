@@ -1,9 +1,10 @@
 import { useMemo, useRef, useState } from 'react';
 import {
   Building2,
+  CheckCircle2,
   Download,
+  FileSpreadsheet,
   Mail,
-  MapPin,
   Phone,
   Plus,
   Star,
@@ -37,13 +38,232 @@ function initialsOf(c: ContactItem): string {
   return (f + l || c.display_name.slice(0, 2)).toUpperCase();
 }
 
+interface ParsedCsvContact {
+  firstName: string;
+  lastName: string;
+  company?: string;
+  jobTitle?: string;
+  emails: ContactLabeledValue[];
+  phones: ContactLabeledValue[];
+  addressStreet?: string;
+  addressZip?: string;
+  addressCity?: string;
+  addressCountry?: string;
+  birthday?: string;
+  notes?: string;
+  labels: string[];
+}
+
+function detectCsvDelimiter(headerLine: string): ',' | ';' {
+  let commas = 0;
+  let semis = 0;
+  let inQuotes = false;
+  for (let i = 0; i < headerLine.length; i++) {
+    const ch = headerLine[i];
+    if (ch === '"') inQuotes = !inQuotes;
+    else if (!inQuotes) {
+      if (ch === ',') commas++;
+      else if (ch === ';') semis++;
+    }
+  }
+  return semis >= commas && semis > 0 ? ';' : ',';
+}
+
+function parseCsvRows(rawInput: string): { delimiter: ',' | ';'; rows: string[][] } {
+  const clean = rawInput.replace(/^\uFEFF/, '');
+  const firstLineEnd = clean.search(/\r?\n/);
+  const firstLine = firstLineEnd === -1 ? clean : clean.slice(0, firstLineEnd);
+  const delimiter = detectCsvDelimiter(firstLine);
+
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let cell = '';
+  let inQuotes = false;
+
+  for (let i = 0; i < clean.length; i++) {
+    const ch = clean[i];
+    const next = clean[i + 1];
+    if (inQuotes) {
+      if (ch === '"' && next === '"') {
+        cell += '"';
+        i++;
+      } else if (ch === '"') {
+        inQuotes = false;
+      } else {
+        cell += ch;
+      }
+    } else if (ch === '"') {
+      inQuotes = true;
+    } else if (ch === delimiter) {
+      row.push(cell.trim());
+      cell = '';
+    } else if (ch === '\r' && next === '\n') {
+      row.push(cell.trim());
+      if (row.some((v) => v.length > 0)) rows.push(row);
+      row = [];
+      cell = '';
+      i++;
+    } else if (ch === '\n' || ch === '\r') {
+      row.push(cell.trim());
+      if (row.some((v) => v.length > 0)) rows.push(row);
+      row = [];
+      cell = '';
+    } else {
+      cell += ch;
+    }
+  }
+  if (cell.length > 0 || row.length > 0) {
+    row.push(cell.trim());
+    if (row.some((v) => v.length > 0)) rows.push(row);
+  }
+  return { delimiter, rows };
+}
+
+function normalizeHeaderKey(h: string): string {
+  return h
+    .toLowerCase()
+    .replace(/^\uFEFF/, '')
+    .replace(/ä/g, 'ae')
+    .replace(/ö/g, 'oe')
+    .replace(/ü/g, 'ue')
+    .replace(/ß/g, 'ss')
+    .replace(/[^a-z0-9]+/g, '');
+}
+
+function mapCsvToContacts(rawText: string): { delimiter: ',' | ';'; contacts: ParsedCsvContact[] } {
+  const { delimiter, rows } = parseCsvRows(rawText);
+  if (rows.length < 2) return { delimiter, contacts: [] };
+
+  const headers = rows[0].map(normalizeHeaderKey);
+  const findCol = (aliases: string[]): number => {
+    for (const alias of aliases) {
+      const idx = headers.indexOf(alias);
+      if (idx !== -1) return idx;
+    }
+    return -1;
+  };
+  const findColsMatching = (prefixes: string[]): number[] => {
+    const res: number[] = [];
+    headers.forEach((h, idx) => {
+      if (prefixes.some((p) => h === p || h.startsWith(p))) res.push(idx);
+    });
+    return res;
+  };
+
+  const idxFirst = findCol(['vorname', 'firstname', 'givenname']);
+  const idxMiddle = findCol(['middlename', 'zweitervorname']);
+  const idxLast = findCol(['nachname', 'lastname', 'familyname', 'surname']);
+  const idxDisplay = findCol(['anzeigename', 'name', 'fullname', 'displayname', 'kontakt']);
+  const idxCompany = findCol(['firma', 'unternehmen', 'company', 'organizationname', 'organization1name', 'organisation']);
+  const idxTitle = findCol(['position', 'titel', 'jobtitle', 'organizationtitle', 'organization1title', 'beruf']);
+  const idxStreet = findCol(['strasse', 'str', 'street', 'address1street', 'adresse', 'homeaddress']);
+  const idxZip = findCol(['plz', 'postleitzahl', 'postalcode', 'zip', 'address1postalcode']);
+  const idxCity = findCol(['stadt', 'ort', 'city', 'address1city']);
+  const idxCountry = findCol(['land', 'country', 'address1country']);
+  const idxBirthday = findCol(['geburtstag', 'birthday', 'geburtsdatum']);
+  const idxNotes = findCol(['notizen', 'notiz', 'notes', 'note', 'bemerkung']);
+  const idxLabels = findCol(['labels', 'gruppe', 'gruppen', 'categories', 'kategorie', 'groupmembership']);
+
+  const emailCols = findColsMatching(['email', 'mail']);
+  const phoneCols = findColsMatching(['telefon', 'tel', 'mobil', 'handy', 'phone', 'mobile']);
+
+  const getVal = (row: string[], idx: number): string => (idx >= 0 && idx < row.length ? row[idx].trim() : '');
+
+  const parsed: ParsedCsvContact[] = [];
+  for (const r of rows.slice(1)) {
+    let firstName = getVal(r, idxFirst);
+    const middle = getVal(r, idxMiddle);
+    if (middle) firstName = [firstName, middle].filter(Boolean).join(' ');
+    let lastName = getVal(r, idxLast);
+    const display = getVal(r, idxDisplay);
+    if (!firstName && !lastName && display) {
+      const parts = display.split(/\s+/);
+      firstName = parts[0] || '';
+      lastName = parts.slice(1).join(' ');
+    }
+    const company = getVal(r, idxCompany) || undefined;
+    if (!firstName && !lastName && !company) continue;
+
+    const emails: ContactLabeledValue[] = [];
+    const seenEmails = new Set<string>();
+    for (const cIdx of emailCols) {
+      const hName = headers[cIdx];
+      if (hName.endsWith('type')) continue;
+      const rawVal = getVal(r, cIdx);
+      if (!rawVal) continue;
+      for (const part of rawVal.split(/[;,]/)) {
+        const val = part.trim();
+        if (!val || !val.includes('@') || seenEmails.has(val.toLowerCase())) continue;
+        seenEmails.add(val.toLowerCase());
+        const lbl = hName.includes('arbeit') || hName.includes('work') ? 'Arbeit' : 'Privat';
+        emails.push({ label: lbl, value: val });
+      }
+    }
+
+    const phones: ContactLabeledValue[] = [];
+    const seenPhones = new Set<string>();
+    for (const cIdx of phoneCols) {
+      const hName = headers[cIdx];
+      if (hName.endsWith('type')) continue;
+      const rawVal = getVal(r, cIdx);
+      if (!rawVal) continue;
+      for (const part of rawVal.split(/[;]/)) {
+        const val = part.trim();
+        if (!val || seenPhones.has(val)) continue;
+        seenPhones.add(val);
+        const lbl =
+          hName.includes('mobil') || hName.includes('handy') || hName.includes('mobile')
+            ? 'Mobil'
+            : hName.includes('arbeit') || hName.includes('work')
+              ? 'Arbeit'
+              : 'Privat';
+        phones.push({ label: lbl, value: val });
+      }
+    }
+
+    const labelsRaw = getVal(r, idxLabels);
+    const labels = labelsRaw
+      ? labelsRaw
+          .split(/[,;|]|:::/)
+          .map((s) => s.replace(/^\* /, '').trim())
+          .filter((s) => s && s.toLowerCase() !== 'mycontacts')
+      : [];
+
+    parsed.push({
+      firstName: firstName || company || 'Kontakt',
+      lastName,
+      company,
+      jobTitle: getVal(r, idxTitle) || undefined,
+      emails,
+      phones,
+      addressStreet: getVal(r, idxStreet) || undefined,
+      addressZip: getVal(r, idxZip) || undefined,
+      addressCity: getVal(r, idxCity) || undefined,
+      addressCountry: getVal(r, idxCountry) || undefined,
+      birthday: getVal(r, idxBirthday) || undefined,
+      notes: getVal(r, idxNotes) || undefined,
+      labels,
+    });
+  }
+
+  return { delimiter, contacts: parsed };
+}
+
 export function ContactsView({ contacts, searchQuery, onContactsChanged }: ContactsViewProps) {
   const [filterMode, setFilterMode] = useState<'all' | 'favorites' | string>('all');
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [editing, setEditing] = useState<ContactItem | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [importStatus, setImportStatus] = useState<string | null>(null);
+  const [csvPreview, setCsvPreview] = useState<{
+    fileName: string;
+    delimiter: ',' | ';';
+    contacts: ParsedCsvContact[];
+  } | null>(null);
+  const [csvImporting, setCsvImporting] = useState(false);
   const vcfInputRef = useRef<HTMLInputElement | null>(null);
+  const csvInputRef = useRef<HTMLInputElement | null>(null);
 
   // Form state
   const [firstName, setFirstName] = useState('');
@@ -212,13 +432,50 @@ export function ContactsView({ contacts, searchQuery, onContactsChanged }: Conta
 
   async function handleVcfImport(file: File | null) {
     if (!file) return;
+    setImportStatus(null);
     const text = await file.text();
-    await apiRequest('/contacts/import/vcf', {
+    const res = await apiRequest<{ imported: number }>('/contacts/import/vcf', {
       method: 'POST',
       body: JSON.stringify({ vcfContent: text }),
     });
     await onContactsChanged();
+    setImportStatus(`${res.imported} Kontakt(e) aus vCard importiert.`);
     if (vcfInputRef.current) vcfInputRef.current.value = '';
+  }
+
+  async function handleCsvSelected(file: File | null) {
+    if (!file) return;
+    setImportStatus(null);
+    const text = await file.text();
+    const parsed = mapCsvToContacts(text);
+    if (csvInputRef.current) csvInputRef.current.value = '';
+    if (parsed.contacts.length === 0) {
+      setImportStatus('Keine gültigen Kontakte in der CSV-Datei gefunden (Spalten z.B. Vorname, Nachname, E-Mail, Telefon).');
+      return;
+    }
+    setCsvPreview({
+      fileName: file.name,
+      delimiter: parsed.delimiter,
+      contacts: parsed.contacts,
+    });
+  }
+
+  async function confirmCsvImport() {
+    if (!csvPreview) return;
+    setCsvImporting(true);
+    try {
+      const res = await apiRequest<{ imported: number }>('/contacts/import/csv', {
+        method: 'POST',
+        body: JSON.stringify({ contacts: csvPreview.contacts }),
+      });
+      await onContactsChanged();
+      setImportStatus(`${res.imported} Kontakt(e) erfolgreich aus CSV importiert.`);
+      setCsvPreview(null);
+    } catch (err) {
+      setImportStatus(err instanceof Error ? err.message : 'CSV-Import fehlgeschlagen');
+    } finally {
+      setCsvImporting(false);
+    }
   }
 
   return (
@@ -232,12 +489,35 @@ export function ContactsView({ contacts, searchQuery, onContactsChanged }: Conta
 
         <div className="flex flex-wrap items-center gap-2">
           <input
+            ref={csvInputRef}
+            type="file"
+            accept=".csv,text/csv"
+            className="hidden"
+            onChange={(e) => void handleCsvSelected(e.target.files?.[0] || null)}
+          />
+          <input
             ref={vcfInputRef}
             type="file"
             accept=".vcf,text/vcard"
             className="hidden"
             onChange={(e) => void handleVcfImport(e.target.files?.[0] || null)}
           />
+          <button
+            type="button"
+            onClick={() => csvInputRef.current?.click()}
+            className="px-3 py-1.5 text-xs font-medium rounded-lg border border-[var(--border-hairline)] bg-[var(--bg-surface)] hover:bg-[var(--bg-hover)] flex items-center gap-1.5 whitespace-nowrap shrink-0"
+          >
+            <FileSpreadsheet className="w-3.5 h-3.5" />
+            CSV Import
+          </button>
+          <button
+            type="button"
+            onClick={() => void downloadAuthenticatedFile('/contacts/export/csv', 'chronodav-contacts.csv')}
+            className="px-3 py-1.5 text-xs font-medium rounded-lg border border-[var(--border-hairline)] bg-[var(--bg-surface)] hover:bg-[var(--bg-hover)] flex items-center gap-1.5 whitespace-nowrap shrink-0"
+          >
+            <Download className="w-3.5 h-3.5" />
+            CSV Export
+          </button>
           <button
             type="button"
             onClick={() => vcfInputRef.current?.click()}
@@ -264,6 +544,22 @@ export function ContactsView({ contacts, searchQuery, onContactsChanged }: Conta
           </button>
         </div>
       </div>
+
+      {importStatus && (
+        <div className="px-3.5 py-2 rounded-lg border border-[var(--border-hairline)] bg-[var(--bg-surface)] text-xs flex items-center justify-between gap-2">
+          <span className="flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-[var(--accent)] shrink-0" />
+            {importStatus}
+          </span>
+          <button
+            type="button"
+            onClick={() => setImportStatus(null)}
+            className="p-1 rounded hover:bg-[var(--bg-hover)]"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
 
       {/* Filter Tabs */}
       <div className="flex flex-wrap items-center gap-1.5">
@@ -621,6 +917,88 @@ export function ContactsView({ contacts, searchQuery, onContactsChanged }: Conta
                 </div>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+      {/* CSV Import Preview Modal */}
+      {csvPreview && (
+        <div className="fixed inset-0 z-50 bg-black/55 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="theme-card w-full max-w-2xl max-h-[85vh] flex flex-col overflow-hidden shadow-2xl">
+            <div className="px-5 py-4 border-b border-[var(--border-hairline)] flex items-center justify-between gap-4">
+              <div className="flex items-center gap-2">
+                <FileSpreadsheet className="w-4 h-4 text-[var(--accent)]" />
+                <h3 className="text-base font-semibold">CSV-Import Vorschau</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setCsvPreview(null)}
+                className="p-1.5 rounded-md hover:bg-[var(--bg-hover)]"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4 overflow-y-auto flex-1">
+              <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-[var(--text-muted)]">
+                <span>
+                  Datei: <strong className="text-[var(--text-primary)]">{csvPreview.fileName}</strong> (Trennzeichen:{' '}
+                  <code className="font-mono">{csvPreview.delimiter === ';' ? 'Semikolon (;)' : 'Komma (,)'}</code>)
+                </span>
+                <span className="tabular-nums font-semibold text-[var(--text-primary)]">
+                  {csvPreview.contacts.length} Kontakte erkannt
+                </span>
+              </div>
+
+              <div className="border border-[var(--border-hairline)] rounded-xl overflow-hidden">
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead>
+                    <tr className="border-b border-[var(--border-hairline)] bg-[var(--bg-surface-2)]/50 text-[var(--text-muted)]">
+                      <th className="py-2 px-3">Name</th>
+                      <th className="py-2 px-3">E-Mail</th>
+                      <th className="py-2 px-3">Telefon</th>
+                      <th className="py-2 px-3">Firma</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[var(--border-hairline)]">
+                    {csvPreview.contacts.slice(0, 6).map((c, i) => (
+                      <tr key={i}>
+                        <td className="py-2 px-3 font-medium">
+                          {[c.firstName, c.lastName].filter(Boolean).join(' ')}
+                        </td>
+                        <td className="py-2 px-3 text-[var(--text-muted)]">{c.emails[0]?.value || '—'}</td>
+                        <td className="py-2 px-3 font-mono tabular-nums text-[var(--text-muted)]">
+                          {c.phones[0]?.value || '—'}
+                        </td>
+                        <td className="py-2 px-3 text-[var(--text-muted)]">{c.company || '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {csvPreview.contacts.length > 6 && (
+                <p className="text-xs text-[var(--text-muted)] tabular-nums">
+                  ... und {csvPreview.contacts.length - 6} weitere Kontakte
+                </p>
+              )}
+            </div>
+
+            <div className="px-5 py-3.5 border-t border-[var(--border-hairline)] flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setCsvPreview(null)}
+                className="px-4 py-2 text-xs font-medium rounded-lg border border-[var(--border-hairline)] hover:bg-[var(--bg-hover)]"
+              >
+                Abbrechen
+              </button>
+              <button
+                type="button"
+                disabled={csvImporting}
+                onClick={() => void confirmCsvImport()}
+                className="theme-btn-primary px-5 py-2 text-xs font-semibold disabled:opacity-60"
+              >
+                {csvImporting ? 'Importiere...' : `${csvPreview.contacts.length} Kontakte importieren`}
+              </button>
+            </div>
           </div>
         </div>
       )}

@@ -426,6 +426,7 @@ export function createDavRouter(): express.Router {
       <D:prop>
         <D:resourcetype><D:collection/><C:calendar/></D:resourcetype>
         <D:displayname>${xmlEscape(cal.name)}</D:displayname>
+        <A:calendar-color>${xmlEscape(cal.color)}</A:calendar-color>
         <C:supported-calendar-component-set><C:comp name="VEVENT"/></C:supported-calendar-component-set>
       </D:prop>
       <D:status>HTTP/1.1 200 OK</D:status>
@@ -435,7 +436,7 @@ export function createDavRouter(): express.Router {
         }
 
         res.status(207).type('application/xml; charset=utf-8').send(
-          `<?xml version="1.0" encoding="utf-8" ?><D:multistatus xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav">${itemsXml}</D:multistatus>`,
+          `<?xml version="1.0" encoding="utf-8" ?><D:multistatus xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav" xmlns:A="http://apple.com/ns/ical/">${itemsXml}</D:multistatus>`,
         );
         return;
       }

@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ContactsAccountType xmlns:android="http://schemas.android.com/apk/res/android">
+    <ContactsDataKind
+        android:mimeType="vnd.android.cursor.item/phone_v2"
+        android:summaryColumn="data2"
+        android:detailColumn="data1" />
+    <ContactsDataKind
+        android:mimeType="vnd.android.cursor.item/email_v2"
+        android:summaryColumn="data2"
+        android:detailColumn="data1" />
+    <ContactsDataKind
+        android:mimeType="vnd.android.cursor.item/postal-address_v2"
+        android:summaryColumn="data2"
+        android:detailColumn="data1" />
+    <ContactsDataKind
+        android:mimeType="vnd.android.cursor.item/organization"
+        android:summaryColumn="data1"
+        android:detailColumn="data4" />
+    <ContactsDataKind
+        android:mimeType="vnd.android.cursor.item/note"
+        android:summaryColumn="data1"
+        android:detailColumn="data1" />
+</ContactsAccountType>

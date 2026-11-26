@@ -1181,6 +1181,23 @@ class ChronoDatabase {
     return this.getCalendarById(id)!;
   }
 
+  public async updateCalendar(
+    id: string,
+    patch: { name?: string; color?: string; description?: string | null },
+  ): Promise<CalendarRecord | null> {
+    const cur = this.getCalendarById(id);
+    if (!cur) return null;
+    const ts = nowIso();
+    const name = patch.name !== undefined && patch.name.trim() ? patch.name.trim() : cur.name;
+    const color = patch.color !== undefined && /^#[0-9a-fA-F]{6}$/.test(patch.color.trim()) ? patch.color.trim() : cur.color;
+    const description = patch.description !== undefined ? patch.description : cur.description;
+    this.sqlite
+      .prepare('UPDATE calendars SET name=?, color=?, description=?, updated_at=? WHERE id=?')
+      .run(name, color, description, ts, id);
+    await this.replicateWrite('calendars', id, 'upsert');
+    return this.getCalendarById(id);
+  }
+
   public listEventsForUser(userId: string): Array<EventRecord & { sharedPermission: 'owner' | 'view' | 'edit'; ownerName: string; shares: EventShareInput[] }> {
     const rows = this.sqlite
       .prepare(

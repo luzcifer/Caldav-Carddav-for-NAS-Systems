@@ -5,6 +5,7 @@ import android.content.ContentResolver
 import android.content.ContentUris
 import android.content.ContentValues
 import android.content.Context
+import android.graphics.Color
 import android.net.Uri
 import android.provider.CalendarContract
 import at.chronodav.sync.dav.DavCalendarInfo
@@ -20,8 +21,33 @@ class AndroidCalendarBridge(private val context: Context) {
         .appendQueryParameter(CalendarContract.Calendars.ACCOUNT_TYPE, account.type)
         .build()
 
-    fun ensureLocalCalendar(account: Account, calInfo: DavCalendarInfo): Long {
+    private fun parseCalendarColor(colorHex: String): Int = try {
+        Color.parseColor(colorHex)
+    } catch (_: Exception) {
+        0xFF1A73E8.toInt()
+    }
+
+    fun ensureLocalCalendar(account: Account, calInfo: DavCalendarInfo, isPrimaryCalendar: Boolean = false): Long {
         val resolver = context.contentResolver
+        val colorInt = parseCalendarColor(calInfo.colorHex)
+
+        val values = ContentValues().apply {
+            put(CalendarContract.Calendars.ACCOUNT_NAME, account.name)
+            put(CalendarContract.Calendars.ACCOUNT_TYPE, account.type)
+            put(CalendarContract.Calendars.NAME, calInfo.id)
+            put(CalendarContract.Calendars.CALENDAR_DISPLAY_NAME, calInfo.displayName)
+            put(CalendarContract.Calendars.CALENDAR_COLOR, colorInt)
+            put(CalendarContract.Calendars.CALENDAR_ACCESS_LEVEL, CalendarContract.Calendars.CAL_ACCESS_OWNER)
+            put(CalendarContract.Calendars.OWNER_ACCOUNT, account.name)
+            put(CalendarContract.Calendars.CALENDAR_TIME_ZONE, TimeZone.getDefault().id)
+            put(CalendarContract.Calendars.SYNC_EVENTS, 1)
+            put(CalendarContract.Calendars.VISIBLE, 1)
+            put(CalendarContract.Calendars.ALLOWED_REMINDERS, "0,1")
+            put(CalendarContract.Calendars.ALLOWED_AVAILABILITY, "0,1,2")
+            put(CalendarContract.Calendars.ALLOWED_ATTENDEE_TYPES, "0,1,2")
+            put(CalendarContract.Calendars.IS_PRIMARY, if (isPrimaryCalendar) 1 else 0)
+        }
+
         val projection = arrayOf(CalendarContract.Calendars._ID)
         val selection = "${CalendarContract.Calendars.ACCOUNT_NAME}=? AND ${CalendarContract.Calendars.ACCOUNT_TYPE}=? AND ${CalendarContract.Calendars.NAME}=?"
         resolver.query(
@@ -32,21 +58,15 @@ class AndroidCalendarBridge(private val context: Context) {
             null
         )?.use { cursor ->
             if (cursor.moveToFirst()) {
-                return cursor.getLong(0)
+                val existingId = cursor.getLong(0)
+                resolver.update(
+                    syncAdapterUri(ContentUris.withAppendedId(CalendarContract.Calendars.CONTENT_URI, existingId), account),
+                    values,
+                    null,
+                    null
+                )
+                return existingId
             }
-        }
-
-        val values = ContentValues().apply {
-            put(CalendarContract.Calendars.ACCOUNT_NAME, account.name)
-            put(CalendarContract.Calendars.ACCOUNT_TYPE, account.type)
-            put(CalendarContract.Calendars.NAME, calInfo.id)
-            put(CalendarContract.Calendars.CALENDAR_DISPLAY_NAME, calInfo.displayName)
-            put(CalendarContract.Calendars.CALENDAR_COLOR, 0xFF1A73E8.toInt())
-            put(CalendarContract.Calendars.CALENDAR_ACCESS_LEVEL, CalendarContract.Calendars.CAL_ACCESS_OWNER)
-            put(CalendarContract.Calendars.OWNER_ACCOUNT, account.name)
-            put(CalendarContract.Calendars.CALENDAR_TIME_ZONE, TimeZone.getDefault().id)
-            put(CalendarContract.Calendars.SYNC_EVENTS, 1)
-            put(CalendarContract.Calendars.VISIBLE, 1)
         }
 
         val inserted = resolver.insert(syncAdapterUri(CalendarContract.Calendars.CONTENT_URI, account), values)
@@ -60,11 +80,36 @@ class AndroidCalendarBridge(private val context: Context) {
         davClient: DavClient,
         serverUrl: String,
         username: String,
-        password: String
+        password: String,
+        isPrimaryCalendar: Boolean = false
     ): Int {
-        val localCalId = ensureLocalCalendar(account, calInfo)
+        val localCalId = ensureLocalCalendar(account, calInfo, isPrimaryCalendar)
         if (localCalId < 0) return 0
         val resolver: ContentResolver = context.contentResolver
+
+        // 0. Lokal gelöschte Termine auf Server löschen und lokal final entfernen
+        resolver.query(
+            CalendarContract.Events.CONTENT_URI,
+            arrayOf(CalendarContract.Events._ID, CalendarContract.Events.SYNC_DATA1),
+            "${CalendarContract.Events.CALENDAR_ID}=? AND ${CalendarContract.Events.DELETED}=1",
+            arrayOf(localCalId.toString()),
+            null
+        )?.use { c ->
+            while (c.moveToNext()) {
+                val localId = c.getLong(0)
+                val uid = c.getString(1)
+                if (!uid.isNullOrBlank()) {
+                    runCatching {
+                        davClient.deleteEvent(serverUrl, username, password, calInfo.id, uid)
+                    }
+                }
+                resolver.delete(
+                    syncAdapterUri(ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, localId), account),
+                    null,
+                    null
+                )
+            }
+        }
 
         // 1. Lokale geänderte oder neu angelegte Termine zuerst zum Server hochladen
         val dirtyProj = arrayOf(
@@ -80,7 +125,7 @@ class AndroidCalendarBridge(private val context: Context) {
         resolver.query(
             CalendarContract.Events.CONTENT_URI,
             dirtyProj,
-            "${CalendarContract.Events.CALENDAR_ID}=? AND ${CalendarContract.Events.DIRTY}=1",
+            "${CalendarContract.Events.CALENDAR_ID}=? AND ${CalendarContract.Events.DIRTY}=1 AND ${CalendarContract.Events.DELETED}=0",
             arrayOf(localCalId.toString()),
             null
         )?.use { c ->
@@ -118,7 +163,7 @@ class AndroidCalendarBridge(private val context: Context) {
         resolver.query(
             CalendarContract.Events.CONTENT_URI,
             arrayOf(CalendarContract.Events._ID, CalendarContract.Events.SYNC_DATA1),
-            "${CalendarContract.Events.CALENDAR_ID}=?",
+            "${CalendarContract.Events.CALENDAR_ID}=? AND ${CalendarContract.Events.DELETED}=0",
             arrayOf(localCalId.toString()),
             null
         )?.use { c ->
@@ -144,6 +189,8 @@ class AndroidCalendarBridge(private val context: Context) {
                 put(CalendarContract.Events.DTEND, ev.endMillis)
                 put(CalendarContract.Events.ALL_DAY, if (ev.allDay) 1 else 0)
                 put(CalendarContract.Events.EVENT_TIMEZONE, tzId)
+                put(CalendarContract.Events.STATUS, CalendarContract.Events.STATUS_CONFIRMED)
+                put(CalendarContract.Events.AVAILABILITY, CalendarContract.Events.AVAILABILITY_BUSY)
                 put(CalendarContract.Events.DIRTY, 0)
             }
             val existingId = existingByUid[ev.uid]
@@ -173,3 +220,4 @@ class AndroidCalendarBridge(private val context: Context) {
         return remoteEvents.size
     }
 }
+
